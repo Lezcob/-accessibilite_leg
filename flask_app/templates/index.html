@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carte Interactive avec OpenLayers et pgRouting</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@7.3.0/ol.css">
+    <style>
+        body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+        h1 { background-color: #0078d7; color: white; text-align: center; padding: 10px; }
+        #map { width: 100%; height: 70vh; border: 2px solid #0078d7; }
+        #controls { text-align: center; margin: 10px; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Carte Interactive avec OpenLayers et pgRouting</h1>
+    <div id="map"></div>
+    <div id="controls">
+        <button id="clear">Effacer</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/ol@7.3.0/dist/ol.js"></script>
+    <script>
+        // Initialisation de la carte
+        const map = new ol.Map({
+            target: 'map',
+            layers: [
+                new ol.layer.Tile({
+                    source: new ol.source.OSM()
+                })
+            ],
+            view: new ol.View({
+                center: ol.proj.fromLonLat([1.444, 43.6045]), // Coordonnées de Toulouse
+                zoom: 13
+            })
+        });
+
+        // Points de départ et d'arrivée
+        const startPoint = new ol.Feature();
+        const destPoint = new ol.Feature();
+
+        // Couche vectorielle pour afficher les points
+        const vectorLayer = new ol.layer.Vector({
+            source: new ol.source.Vector({
+                features: [startPoint, destPoint]
+            }),
+            style: new ol.style.Style({
+                image: new ol.style.Circle({
+                    radius: 7,
+                    fill: new ol.style.Fill({ color: 'blue' }),
+                    stroke: new ol.style.Stroke({ color: 'white', width: 2 })
+                })
+            })
+        });
+        map.addLayer(vectorLayer);
+
+        // Fonction de transformation des coordonnées
+        const transform = ol.proj.getTransform('EPSG:3857', 'EPSG:4326');
+
+        // Gestion des clics sur la carte
+        map.on('click', function(event) {
+            if (!startPoint.getGeometry()) {
+                // Premier clic : définir le point de départ
+                startPoint.setGeometry(new ol.geom.Point(event.coordinate));
+            } else if (!destPoint.getGeometry()) {
+                // Deuxième clic : définir le point d'arrivée
+                destPoint.setGeometry(new ol.geom.Point(event.coordinate));
+
+                // Transformation des coordonnées pour l'API Flask
+                const startCoord = transform(startPoint.getGeometry().getCoordinates());
+                const destCoord = transform(destPoint.getGeometry().getCoordinates());
+
+                // Appel à l'API Flask pour calculer l'itinéraire
+                fetch('/get_route', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        start: { lon: startCoord[0], lat: startCoord[1] },
+                        end: { lon: destCoord[0], lat: destCoord[1] }
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // Afficher l'itinéraire sur la carte
+                    const route = new ol.Feature({
+                        geometry: new ol.geom.LineString(data.features[0].geometry.coordinates).transform('EPSG:4326', 'EPSG:3857')
+                    });
+                    vectorLayer.getSource().addFeature(route);
+                })
+                .catch(error => alert("Erreur lors du calcul de l'itinéraire : " + error));
+            }
+        });
+
+        // Bouton pour effacer les points et l'itinéraire
+        document.getElementById('clear').addEventListener('click', function() {
+            startPoint.setGeometry(null);
+            destPoint.setGeometry(null);
+            vectorLayer.getSource().clear();
+        });
+    </script>
+</body>
+</html>
